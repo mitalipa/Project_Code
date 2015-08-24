@@ -1,0 +1,133 @@
+//Implemented by Rishabh Choudhary and Mitali Parekh
+var MongoClient = require('mongodb').MongoClient;
+var fs = require('fs');
+
+// Connection URL
+var url = 'mongodb://test:test@ds035750.mongolab.com:35750/project3';
+// Use connect method to connect to the Server
+MongoClient.connect(url, function(err, db) {
+  console.log("Connected correctly to server");
+  var collection = db.collection('test_col');
+  
+  var map = function() {
+    var cutpoints = [4.7,5,5.5,5.6,6,7];
+    // {value:4.5,class:'iris'}
+    // + begin <map function>
+    var Key,Count;
+    for(var i=0;i<cutpoints.length;i++)
+    {
+      Key={cutpoint:cutpoints[i],classValue:this.class};
+      if(this.value<=cutpoints[i])
+        Count={S1Count:1,S2Count:0,checked:0};
+      else
+        Count={S1Count:0,S2Count:1,checked:0};
+      emit(Key,Count);
+    }
+    // - end <map function>
+  };
+  
+  var reduce = function(key,values) {
+    // + begin <reduce function>
+    var Total={S1Count:0,S2Count:0,checked:0};
+    for(var i=0;i<values.length;i++) {
+      Total.S1Count+=values[i].S1Count;
+      Total.S2Count+=values[i].S2Count;
+    }
+    return Total;
+    // - end <reduce function>
+  };
+  collection.mapReduce(map,reduce,{out:{inline:1}}, function(err,results) {
+    // + begin <result from map-reduce>
+    var i,j;
+    var S1Total=0;
+    var S2Total=0;
+    var STotal=0;
+    var EntropyS1=0;
+    var EntropyS2=0;
+    var ClassProbabilityS1=0;
+    var ClassProbabilityS2=0;
+    var EntropyContributionS1=0;
+    var EntropyContributionS2=0;
+    var MinInformationEntropy;
+    var MinInformationEntropyCutPoint=-1;
+    var InformationEntropy;
+    for(i=0;i<results.length;i++)
+    {
+      if(results[i].value.checked===0)
+      {
+        //display cutpoint
+        console.log("\n\nCut point : "+results[i]._id.cutpoint);
+        S1Total=0;
+        S2Total=0;
+        STotal=0;
+        for(j=0;j<results.length;j++)
+        {
+          if(results[j]._id.cutpoint==results[i]._id.cutpoint)
+          {
+            //Calculate total datarows in S1 and S2
+            S1Total+=results[j].value.S1Count;
+            S2Total+=results[j].value.S2Count;
+            results[j].value.checked=1;
+          }
+        }
+        STotal=S1Total+S2Total;
+        EntropyS1=0;
+        EntropyS2=0;
+        InformationEntopy=0;
+        for(j=0;j<results.length;j++)
+        {
+          ClassProbabilityS1=0;
+          ClassProbabilityS2=0;
+          EntropyContributionS1=0;
+          EntropyContributionS2=0;
+          if(results[j]._id.cutpoint==results[i]._id.cutpoint)
+          {
+            //Calculate -1*p*log(p) and add to entropy of S1 and S2, p=probability of class in set
+            if(S1Total!==0)
+            {
+              ClassProbabilityS1=results[j].value.S1Count/S1Total;
+              if(results[j].value.S1Count!==0 && results[j].value.S1Count!==S1Total)
+              {
+                EntropyContributionS1=(-1)*(ClassProbabilityS1)*(Math.log(ClassProbabilityS1)/Math.LN2);
+                EntropyS1+=EntropyContributionS1;
+              }
+            }
+            if(S2Total!==0)
+            {
+              ClassProbabilityS2=results[j].value.S2Count/S2Total;
+              if(results[j].value.S2Count!==0 && results[j].value.S2Count!==S2Total)
+              {
+                EntropyContributionS2=(-1)*(ClassProbabilityS2)*(Math.log(ClassProbabilityS2)/Math.LN2);
+                EntropyS2+=EntropyContributionS2;
+              }
+            }
+            //Remove comment below to display Information Entropy evaluation process 
+            //console.log("Class : "+results[j]._id.classValue);
+            //console.log(" S1 Class Count :"+results[j].value.S1Count+" S2 Class Count :"+results[j].value.S2Count);
+            //console.log(" S1 Total Datarows :"+S1Total+" S2 Total Datarows :"+S2Total+" S Total Datarows :"+STotal);
+            //console.log(" S1 Class Probability :"+ClassProbabilityS1+" S2 Class Probability :"+ClassProbabilityS2);
+            //console.log(" S1 Class Entropy contribution :"+EntropyContributionS1+" S2 Class Entropy contribution :"+EntropyContributionS2);
+          }
+        }
+        if(STotal!==0)
+        {
+          InformationEntropy=(S1Total/STotal)*EntropyS1+(S2Total/STotal)*EntropyS2;
+        }
+        //Remove comment below to display Information Entropy evaluation
+        //console.log("S1/S :"+S1Total/STotal+" Entropy S1 :"+EntropyS1+" S2/S :"+S2Total/STotal+" Entropy S2 :"+EntropyS2)
+        console.log("Information Entropy :"+InformationEntropy);
+        if(MinInformationEntropyCutPoint==-1 || MinInformationEntropy>InformationEntropy)
+        {
+          MinInformationEntropyCutPoint=results[i]._id.cutpoint;
+          MinInformationEntropy=InformationEntropy;
+        }
+      }
+    }
+    //display Min. Information Entropy and corresponding cut point
+    console.log("\n\nMin. Information Entropy Cut point : "+MinInformationEntropyCutPoint);
+    console.log("Min. Information Entropy : "+MinInformationEntropy);
+    // - end <result from map-reduce>
+    db.close();
+  });
+});
+ 
